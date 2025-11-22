@@ -84,9 +84,6 @@ def call_mcp_tool(tool_id: str, parameters: Dict[str, Any], service_name: Option
         MCPError: If the MCP tool call fails
         ValueError: If required parameters are missing
     """
-    # Infer service name from tool_id if not provided
-    if not service_name:
-        service_name = _infer_service_from_tool_id(tool_id)
     
     mcp_url = get_mcp_server_url(service_name)
     if not mcp_url:
@@ -150,81 +147,3 @@ def _get_mcp_headers(service_name: str) -> Dict[str, str]:
         headers['Authorization'] = f'Bearer {auth_token}'
     
     return headers
-
-
-def _infer_service_from_tool_id(tool_id: str) -> str:
-    """
-    Infer service name from tool ID.
-    Examples: "gmail_send_email" -> "gmail", "slack_send_message" -> "slack"
-    """
-    tool_id_lower = tool_id.lower()
-    
-    # Check for service prefixes
-    if tool_id_lower.startswith('gmail_'):
-        return 'gmail'
-    elif tool_id_lower.startswith('slack_'):
-        return 'slack'
-    elif tool_id_lower.startswith('notion_'):
-        return 'notion'
-    elif tool_id_lower.startswith('calendar_'):
-        return 'calendar'
-    
-    # Default to gmail if unknown
-    return 'gmail'
-
-
-def format_mcp_request(tool_name: str, arguments: Dict[str, Any], request_id: int = 1) -> Dict[str, Any]:
-    """
-    Format a request according to MCP JSON-RPC specification.
-    
-    Args:
-        tool_name: Name of the MCP tool
-        arguments: Arguments for the tool
-        request_id: Request ID for JSON-RPC
-        
-    Returns:
-        Formatted JSON-RPC request
-    """
-    return {
-        'jsonrpc': '2.0',
-        'method': 'tools/call',
-        'params': {
-            'name': tool_name,
-            'arguments': arguments
-        },
-        'id': request_id
-    }
-
-
-# Legacy handler functions for backward compatibility
-# These can be removed once all tools are dynamically discovered
-def _handle_gmail_send_email(parameters: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Handle Gmail send_email MCP tool call.
-    This is a wrapper that calls the generic call_mcp_tool function.
-    """
-    # Extract tool name from function name
-    tool_name = 'send_email'
-    
-    # Validate required parameters
-    required_params = ['to', 'subject', 'body']
-    for param in required_params:
-        if param not in parameters:
-            raise ValueError(f"Missing required parameter: {param}")
-    
-    return call_mcp_tool(tool_name, parameters, service_name='gmail')
-
-
-def _handle_gmail_search_attachments(parameters: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Handle Gmail search_attachments MCP tool call.
-    This is a wrapper that calls the generic call_mcp_tool function.
-    """
-    # Extract tool name from function name
-    tool_name = 'search_attachments'
-    
-    # Validate required parameters
-    if 'query' not in parameters:
-        raise ValueError("Missing required parameter: query")
-    
-    return call_mcp_tool(tool_name, parameters, service_name='gmail')
