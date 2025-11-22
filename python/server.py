@@ -10,7 +10,7 @@ import os
 from typing import Dict, List, Any
 
 from mcp_client import call_mcp_tool, list_mcp_tools, MCPError
-from llm_client import get_workflow_suggestions, get_contextual_workflows
+from llm_client import analyze_context_and_get_workflows, get_workflow_suggestions
 from config import SERVER_HOST, SERVER_PORT
 
 app = Flask(__name__)
@@ -176,7 +176,7 @@ def analyze_context():
     """
     POST /analyze-context
     
-    Receives context information about the user's current screen and returns relevant workflows.
+    Receives context information about the user's current screen and returns app, context, and workflows.
     Accepts JSON:
     {
         "timestamp": "2025-11-22T17:28:02",
@@ -188,7 +188,11 @@ def analyze_context():
     }
     
     Returns:
-    [{"id": "...", "name": "...", "description": "..."}]
+    {
+        "app": "Gmail",
+        "context": "...",
+        "workflows": [{"id": "...", "name": "...", "description": "..."}]  # Exactly 8 workflows
+    }
     """
     try:
         data = request.get_json()
@@ -199,10 +203,11 @@ def analyze_context():
             }), 400
         
         # Extract context information
+        timestamp = data.get('timestamp', '').strip()
         process = data.get('process', '').strip()
         title = data.get('title', '').strip()
         url = data.get('url', 'N/A').strip()
-        screenshot_base64 = data.get('screenshot_base64', '').strip()
+        screenshot_base64 = data.get('screenshot_base64', '').strip() or None
         context = data.get('context', '').strip()
         
         if not process and not title:
@@ -210,72 +215,59 @@ def analyze_context():
                 'error': 'Missing required fields: process or title'
             }), 400
         
-        # Only pass screenshot if it's not empty
-        screenshot = screenshot_base64 if screenshot_base64 else None
+        # First, get a temporary app name to query MCP server
+        # We'll extract it inline to avoid exposing private function
+        process_lower = process.lower()
+        title_lower = title.lower()
+        url_lower = url.lower() if url and url != 'N/A' else ''
         
-        # Try to get MCP tools for the inferred service
-        # Extract service name from context
-        from llm_client import extract_service_name
-        service_name = extract_service_name(process, title, url)
+        if 'gmail' in process_lower or ('chrome' in process_lower and 'gmail' in title_lower):
+            temp_app_name = 'Gmail'
+        elif 'slack' in process_lower:
+            temp_app_name = 'Slack'
+        elif 'notion' in process_lower:
+            temp_app_name = 'Notion'
+        elif 'calendar' in process_lower or 'outlook' in process_lower:
+            temp_app_name = 'Calendar'
+        elif url_lower and ('gmail.com' in url_lower or 'slack.com' in url_lower or 'notion.so' in url_lower):
+            if 'gmail.com' in url_lower:
+                temp_app_name = 'Gmail'
+            elif 'slack.com' in url_lower:
+                temp_app_name = 'Slack'
+            else:
+                temp_app_name = 'Notion'
+        elif 'gmail' in title_lower:
+            temp_app_name = 'Gmail'
+        elif 'slack' in title_lower:
+            temp_app_name = 'Slack'
+        elif 'notion' in title_lower:
+            temp_app_name = 'Notion'
+        else:
+            temp_app_name = process if process else 'Unknown'
         
         # Query MCP server for available tools
         mcp_tools = []
         try:
-            mcp_tools = list_mcp_tools(service_name)
-            print(f"[MCP] Found {len(mcp_tools)} tools for {service_name}")
+            mcp_tools = list_mcp_tools(temp_app_name)
+            print(f"[MCP] Found {len(mcp_tools)} tools for {temp_app_name}")
         except MCPError as e:
-            print(f"[MCP] Warning: Could not query MCP server for {service_name}: {e}")
+            print(f"[MCP] Warning: Could not query MCP server for {temp_app_name}: {e}")
         except Exception as e:
             print(f"[MCP] Unexpected error querying MCP server: {e}")
         
-        # Convert MCP tools to workflow format
-        available_tools = []
-        if mcp_tools:
-            for tool in mcp_tools:
-                tool_name = tool.get('name', '')
-                tool_description = tool.get('description', '')
-                
-                # Create workflow ID (service_tool format)
-                workflow_id = f"{service_name.lower()}_{tool_name}"
-                
-                available_tools.append({
-                    'id': workflow_id,
-                    'name': tool_name.replace('_', ' ').title(),
-                    'description': tool_description or f"Execute {tool_name} tool"
-                })
+        # Get app, context, and workflows using the main function
+        result = analyze_context_and_get_workflows(
+            timestamp=timestamp,
+            process=process,
+            title=title,
+            url=url,
+            screenshot_base64=screenshot_base64,
+            context=context,
+            mcp_tools=mcp_tools,
+            workflows_data=workflows_data
+        )
         
-        # Get contextual workflows using LLM
-        try:
-            workflows = get_contextual_workflows(
-                process=process,
-                title=title,
-                url=url,
-                context=context,
-                screenshot_base64=screenshot,
-                workflows_data=workflows_data,
-                available_tools=available_tools if available_tools else None
-            )
-            
-            return jsonify(workflows)
-            
-        except Exception as e:
-            print(f"Error in analyze_context: {e}")
-            import traceback
-            traceback.print_exc()
-            
-            # Fallback to available tools or workflows
-            if available_tools:
-                return jsonify(available_tools[:5])
-            else:
-                # Try to get workflows from workflows_data
-                service_name_lower = service_name.lower()
-                if workflows_data and service_name_lower in workflows_data:
-                    fallback_workflows = workflows_data[service_name_lower].get('workflows', [])
-                    return jsonify(fallback_workflows[:5])
-                else:
-                    return jsonify({
-                        'error': f'Failed to retrieve workflows: {str(e)}'
-                    }), 500
+        return jsonify(result)
             
     except Exception as e:
         print(f"Error in analyze_context: {e}")
