@@ -1,0 +1,4 @@
+haptics:
+  buttonPress:
+    DEFAULT: sharp_state_change
+    MX Creative Keypad: sharp_collision  # Optional: device-specific mappings
