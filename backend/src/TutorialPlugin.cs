@@ -39,11 +39,7 @@ namespace Loupedeck.TutorialPlugin
 
         public override void Unload()
         {
-            if (this._appTimer != null)
-            {
-                this._appTimer.Stop();
-                this._appTimer.Dispose();
-            }
+            // No timer to dispose — WindowWatcher hook is released automatically
             base.Unload();
         }
 
