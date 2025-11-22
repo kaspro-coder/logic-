@@ -1,14 +1,12 @@
 using System;
-using System.IO; // Nécessaire pour écrire dans le fichier
+using System.IO;
 using Loupedeck;
 
 namespace Loupedeck.TutorialPlugin
 {
     public class TutorialPlugin : Plugin
     {
-        // On suppose que la classe WindowWatcher est définie dans un autre fichier de ton projet
         private WindowWatcher _watcher;
-        private System.Timers.Timer _appTimer;
         private string _lastDetectedApp = "";
         private string _logFilePath;
 
@@ -16,59 +14,48 @@ namespace Loupedeck.TutorialPlugin
         {
             base.Load();
 
-            // 1. On définit le chemin du fichier sur le Bureau
+            // Path to the log file on desktop
             string desktopPath = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
-            this._logFilePath = Path.Combine(desktopPath, "log_loupedeck.txt");
+            _logFilePath = Path.Combine(desktopPath, "log_loupedeck.txt");
 
-            // Petit message pour dire qu'on commence
-            try 
+            try
             {
-                File.AppendAllText(this._logFilePath, $"--- Démarrage du Plugin : {DateTime.Now} ---\n");
+                File.AppendAllText(_logFilePath, $"--- Plugin started: {DateTime.Now} ---\n");
             }
             catch (Exception ex)
             {
-                PluginLog.Error($"Erreur d'écriture fichier: {ex.Message}");
+                PluginLog.Error($"File write error: {ex.Message}");
             }
 
-            // 2. On initialise le détecteur (qui existe déjà ailleurs)
-            this._watcher = new WindowWatcher();
+            // Initialize the event-based watcher
+            _watcher = new WindowWatcher();
 
-            // 3. On lance le timer (chaque seconde)
-            this._appTimer = new System.Timers.Timer(1000);
-            this._appTimer.Elapsed += this.OnAppCheck;
-            this._appTimer.AutoReset = true;
-            this._appTimer.Enabled = true;
+            // Subscribe to instant window change notifications
+            _watcher.OnActiveApplicationChanged += this.OnAppChanged;
         }
 
         public override void Unload()
         {
-            if (this._appTimer != null)
-            {
-                this._appTimer.Stop();
-                this._appTimer.Dispose();
-            }
+            // No timer to dispose — WindowWatcher hook is released automatically
             base.Unload();
         }
 
-        private void OnAppCheck(Object source, System.Timers.ElapsedEventArgs e)
+        private void OnAppChanged(string currentApp)
         {
-            // CORRECTION : On utilise le nom exact de la méthode définie dans ton WindowWatcher
-            var currentApp = this._watcher.GetActiveProcessName(); 
+            // Avoid duplicates
+            if (string.IsNullOrEmpty(currentApp) || currentApp == _lastDetectedApp)
+                return;
 
-            // Si le titre a changé, on l'écrit dans le fichier
-            if (!string.IsNullOrEmpty(currentApp) && currentApp != this._lastDetectedApp)
+            _lastDetectedApp = currentApp;
+
+            try
             {
-                this._lastDetectedApp = currentApp;
-                
-                try
-                {
-                    string logMessage = $"{DateTime.Now:HH:mm:ss} -> {currentApp}\n";
-                    File.AppendAllText(this._logFilePath, logMessage);
-                }
-                catch
-                {
-                    // Ignorer les erreurs d'écriture si le fichier est verrouillé
-                }
+                string logMessage = $"{DateTime.Now:HH:mm:ss} -> {currentApp}\n";
+                File.AppendAllText(_logFilePath, logMessage);
+            }
+            catch 
+            {
+                // swallow write errors if log is locked
             }
         }
     }
