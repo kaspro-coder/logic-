@@ -1,0 +1,76 @@
+{
+  "example_tools_list_response": {
+    "jsonrpc": "2.0",
+    "result": {
+      "tools": [
+        {
+          "name": "send_email",
+          "description": "Send an email to one or more recipients",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "to": {
+                "type": "string",
+                "description": "Recipient email address"
+              },
+              "subject": {
+                "type": "string",
+                "description": "Email subject"
+              },
+              "body": {
+                "type": "string",
+                "description": "Email body"
+              }
+            },
+            "required": ["to", "subject", "body"]
+          }
+        },
+        {
+          "name": "search_attachments",
+          "description": "Search for emails with attachments",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "query": {
+                "type": "string",
+                "description": "Search query"
+              },
+              "max_results": {
+                "type": "integer",
+                "description": "Maximum number of results",
+                "default": 10
+              }
+            },
+            "required": ["query"]
+          }
+        }
+      ]
+    },
+    "id": 1
+  },
+  "example_tool_call_response": {
+    "jsonrpc": "2.0",
+    "result": {
+      "content": [
+        {
+          "type": "text",
+          "text": "Email sent successfully to recipient@example.com"
+        }
+      ],
+      "isError": false
+    },
+    "id": 1
+  },
+  "example_error_response": {
+    "jsonrpc": "2.0",
+    "error": {
+      "code": -32602,
+      "message": "Invalid params: Missing required parameter 'to'",
+      "data": {
+        "parameter": "to"
+      }
+    },
+    "id": 1
+  }
+}
+

@@ -1,0 +1,88 @@
+{
+  "gmail": {
+    "service_name": "Gmail",
+    "workflows": [
+      {
+        "id": "gmail_send_email",
+        "name": "Send Email",
+        "description": "Compose and send an email to one or more recipients"
+      },
+      {
+        "id": "gmail_search_attachments",
+        "name": "Search Attachments",
+        "description": "Search for emails containing attachments matching your criteria"
+      },
+      {
+        "id": "gmail_quick_reply",
+        "name": "Quick Reply",
+        "description": "Send a quick reply to the most recent email"
+      },
+      {
+        "id": "gmail_mark_important",
+        "name": "Mark as Important",
+        "description": "Mark an email as important or star it"
+      }
+    ]
+  },
+  "slack": {
+    "service_name": "Slack",
+    "workflows": [
+      {
+        "id": "slack_send_message",
+        "name": "Send Message",
+        "description": "Send a message to a Slack channel or direct message"
+      },
+      {
+        "id": "slack_search_messages",
+        "name": "Search Messages",
+        "description": "Search for messages across your Slack workspace"
+      },
+      {
+        "id": "slack_set_status",
+        "name": "Set Status",
+        "description": "Update your Slack status and availability"
+      },
+      {
+        "id": "slack_create_channel",
+        "name": "Create Channel",
+        "description": "Create a new Slack channel"
+      }
+    ]
+  },
+  "notion": {
+    "service_name": "Notion",
+    "workflows": [
+      {
+        "id": "notion_create_page",
+        "name": "Create Page",
+        "description": "Create a new page in your Notion workspace"
+      },
+      {
+        "id": "notion_search_pages",
+        "name": "Search Pages",
+        "description": "Search for pages in your Notion workspace"
+      },
+      {
+        "id": "notion_add_to_database",
+        "name": "Add to Database",
+        "description": "Add a new entry to a Notion database"
+      }
+    ]
+  },
+  "calendar": {
+    "service_name": "Calendar",
+    "workflows": [
+      {
+        "id": "calendar_create_event",
+        "name": "Create Event",
+        "description": "Create a new calendar event"
+      },
+      {
+        "id": "calendar_view_schedule",
+        "name": "View Schedule",
+        "description": "View your upcoming calendar events"
+      }
+    ]
+  }
+}
+

@@ -1,0 +1,16 @@
+{
+  "GMAIL_MCP_SERVER_URL": "http://localhost:3000/mcp",
+  "SLACK_MCP_SERVER_URL": "http://localhost:3001/mcp",
+  "NOTION_MCP_SERVER_URL": "http://localhost:3002/mcp",
+  "CALENDAR_MCP_SERVER_URL": "http://localhost:3003/mcp",
+  "GMAIL_MCP_AUTH_TOKEN": "your_gmail_auth_token_here",
+  "SLACK_MCP_AUTH_TOKEN": "your_slack_auth_token_here",
+  "NOTION_MCP_AUTH_TOKEN": "your_notion_auth_token_here",
+  "CALENDAR_MCP_AUTH_TOKEN": "your_calendar_auth_token_here",
+  "TOGETHER_AI_API_KEY": "your_together_ai_key_here",
+  "TOGETHER_AI_MODEL": "meta-llama/Llama-3-8b-chat-hf",
+  "SERVER_HOST": "localhost",
+  "SERVER_PORT": "5000",
+  "MCP_TIMEOUT": "30"
+}
+
