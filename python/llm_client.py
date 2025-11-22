@@ -135,13 +135,14 @@ def _stub_llm_suggestions(service_name: str) -> List[Dict[str, str]]:
     return suggestions
 
 
-def call_llm_api(prompt: str, system_prompt: Optional[str] = None) -> str:
+def call_llm_api(prompt: str, system_prompt: Optional[str] = None, image_base64: Optional[str] = None) -> str:
     """
     Call Together AI API to generate workflow suggestions.
     
     Args:
         prompt: The user prompt/question
         system_prompt: Optional system prompt for context
+        image_base64: Optional base64-encoded image (for vision models)
         
     Returns:
         LLM response as a string
@@ -157,10 +158,42 @@ def call_llm_api(prompt: str, system_prompt: Optional[str] = None) -> str:
             'role': 'system',
             'content': system_prompt
         })
-    messages.append({
+    
+    # Build user message - support both text and vision
+    user_message = {
         'role': 'user',
-        'content': prompt
+        'content': []
+    }
+    
+    # Add image if provided (for vision models)
+    if image_base64:
+        # Ensure base64 string doesn't have data URL prefix
+        image_data = image_base64
+        if image_base64.startswith('data:image'):
+            # Extract base64 part from data URL
+            image_data = image_base64.split(',', 1)[1] if ',' in image_base64 else image_base64
+        
+        user_message['content'].append({
+            'type': 'image_url',
+            'image_url': {
+                'url': f'data:image/png;base64,{image_data}'
+            }
+        })
+    
+    # Add text prompt
+    user_message['content'].append({
+        'type': 'text',
+        'text': prompt
     })
+    
+    # If no image, use simple string format for compatibility
+    if not image_base64:
+        user_message = {
+            'role': 'user',
+            'content': prompt
+        }
+    
+    messages.append(user_message)
     
     payload = {
         'model': TOGETHER_AI_MODEL,
@@ -336,4 +369,179 @@ Return a JSON array of workflow objects with id, name, and description fields.""
     except Exception as e:
         print(f"Error getting LLM workflow suggestions: {e}")
         return []
+
+
+def get_contextual_workflows(
+    process: str,
+    title: str,
+    url: str,
+    context: str,
+    screenshot_base64: Optional[str] = None,
+    workflows_data: Optional[Dict[str, Any]] = None,
+    available_tools: Optional[List[Dict[str, str]]] = None
+) -> List[Dict[str, str]]:
+    """
+    Get workflow suggestions based on user's current screen context.
+    Uses LLM to analyze the context (process, title, URL, screenshot) and suggest relevant workflows.
+    
+    Args:
+        process: Name of the active process/application
+        title: Window title
+        url: Current URL (if applicable)
+        context: Additional context information
+        screenshot_base64: Optional base64-encoded screenshot
+        workflows_data: Dictionary containing service-to-workflow mappings
+        available_tools: Optional list of tools from MCP server
+        
+    Returns:
+        List of workflow dictionaries with id, name, and description
+    """
+    # Extract service name from process/title
+    service_name = extract_service_name(process, title, url)
+    
+    # Build context description for LLM
+    context_description = f"""Current Application Context:
+- Process: {process}
+- Window Title: {title}
+- URL: {url if url and url != 'N/A' else 'Not applicable'}
+- Additional Context: {context if context else 'None provided'}
+"""
+    
+    # Get available workflows for the service
+    available_workflows = []
+    if workflows_data and service_name.lower() in workflows_data:
+        available_workflows = workflows_data[service_name.lower()].get('workflows', [])
+    
+    # If MCP tools are available, use those
+    if available_tools:
+        workflows_to_rank = available_tools
+    elif available_workflows:
+        workflows_to_rank = available_workflows
+    else:
+        # Fallback to stub suggestions
+        return _stub_llm_suggestions(service_name)
+    
+    # Build workflow context
+    workflow_context = ""
+    if workflows_to_rank:
+        workflow_context = "\nAvailable workflows for this service:\n"
+        for wf in workflows_to_rank[:10]:  # Limit to top 10 for context
+            wf_name = wf.get('name', '')
+            wf_desc = wf.get('description', '')
+            workflow_context += f"- {wf_name}: {wf_desc}\n"
+    
+    # Create enhanced system prompt
+    system_prompt = """You are a helpful assistant that suggests relevant workflows based on the user's current screen context.
+Analyze the user's current application, window title, and any provided context to suggest the most relevant workflows.
+Return your response as a JSON array of workflow objects, each with:
+- "id": a unique identifier (lowercase, underscores, e.g., "gmail_send_email")
+- "name": a short, descriptive name (e.g., "Send Email")
+- "description": a brief description of what the workflow does
+
+Focus on workflows that are most relevant to what the user is currently doing based on the context.
+Return ONLY valid JSON, no additional text or markdown formatting."""
+    
+    # Create user prompt with context
+    user_prompt = f"""Based on the following context, suggest the top 3-5 most relevant workflows:
+{context_description}
+{workflow_context}
+
+Analyze the context and suggest workflows that would be most useful for the user right now.
+Return a JSON array of workflow objects with id, name, and description fields."""
+    
+    # If screenshot is provided, mention it in the prompt
+    if screenshot_base64:
+        user_prompt += "\n\nA screenshot of the current screen is also provided. Use it to better understand the context."
+    
+    try:
+        # Call LLM with context and optional screenshot
+        llm_response = call_llm_api(user_prompt, system_prompt, image_base64=screenshot_base64)
+        workflows = parse_llm_workflow_suggestions(llm_response, service_name)
+        
+        # Validate and ensure required fields
+        validated_workflows = []
+        for wf in workflows:
+            if isinstance(wf, dict) and 'id' in wf and 'name' in wf:
+                validated_workflows.append({
+                    'id': str(wf.get('id', '')),
+                    'name': str(wf.get('name', '')),
+                    'description': str(wf.get('description', ''))
+                })
+        
+        # If LLM didn't return valid workflows, fallback to available workflows
+        if validated_workflows:
+            return validated_workflows
+        elif workflows_to_rank:
+            return workflows_to_rank[:5]  # Return top 5
+        else:
+            return _stub_llm_suggestions(service_name)
+            
+    except Exception as e:
+        print(f"Error getting contextual workflows: {e}")
+        import traceback
+        traceback.print_exc()
+        # Fallback to available workflows
+        if workflows_to_rank:
+            return workflows_to_rank[:5]
+        return _stub_llm_suggestions(service_name)
+
+
+def extract_service_name(process: str, title: str, url: str) -> str:
+    """
+    Extract service name from process, title, or URL.
+    
+    Args:
+        process: Process name
+        title: Window title
+        url: Current URL
+        
+    Returns:
+        Extracted service name (e.g., "Gmail", "Slack", "Notion")
+    """
+    # Normalize inputs
+    process_lower = process.lower()
+    title_lower = title.lower()
+    url_lower = url.lower() if url and url != 'N/A' else ''
+    
+    # Check for common services in process name
+    if 'gmail' in process_lower or 'chrome' in process_lower and 'gmail' in title_lower:
+        return 'Gmail'
+    elif 'slack' in process_lower:
+        return 'Slack'
+    elif 'notion' in process_lower:
+        return 'Notion'
+    elif 'calendar' in process_lower or 'outlook' in process_lower:
+        return 'Calendar'
+    elif 'code' in process_lower or 'vscode' in process_lower:
+        # VS Code - could be various services, check title/context
+        if 'gmail' in title_lower:
+            return 'Gmail'
+        elif 'slack' in title_lower:
+            return 'Slack'
+        else:
+            return 'Code'  # Default for code editors
+    
+    # Check URL for service indicators
+    if url_lower:
+        if 'gmail.com' in url_lower or 'mail.google.com' in url_lower:
+            return 'Gmail'
+        elif 'slack.com' in url_lower:
+            return 'Slack'
+        elif 'notion.so' in url_lower:
+            return 'Notion'
+        elif 'calendar.google.com' in url_lower or 'outlook.com/calendar' in url_lower:
+            return 'Calendar'
+    
+    # Check title for service indicators
+    if 'gmail' in title_lower:
+        return 'Gmail'
+    elif 'slack' in title_lower:
+        return 'Slack'
+    elif 'notion' in title_lower:
+        return 'Notion'
+    elif 'calendar' in title_lower:
+        return 'Calendar'
+    
+    # Default fallback
+    return process if process else 'Unknown'
 
