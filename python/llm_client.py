@@ -10,81 +10,78 @@ from config import TOGETHER_AI_API_KEY, TOGETHER_AI_API_URL, TOGETHER_AI_MODEL, 
 
 
 def analyze_context_and_get_workflows(
-    timestamp: str,
-    process: str,
-    title: str,
-    url: str,
-    screenshot_base64: Optional[str],
+    application_name: str,
+    channel_name: str,
     context: str,
-    mcp_tools: List[Dict[str, Any]],
-    workflows_data: Optional[Dict[str, Any]] = None
 ) -> Dict[str, Any]:
     """
-    Main function: Takes context JSON and returns app name, context, and 8 best workflows.
+    Main function: Takes context string and returns 8 best MCP tools that might be useful to the user.
     
     Args:
-        timestamp: Timestamp of the context
-        process: Process name (e.g., "Code")
-        title: Window title
-        url: Current URL
-        screenshot_base64: Optional base64 screenshot
-        context: Additional context string
-        mcp_tools: List of available MCP tools from the server
-        
+        application_name: Name of the application (e.g., "Slack")
+        channel_name: Name of the channel or person (e.g., "general")
+        context: Context string
+
     Returns:
         {
-            "app": "Gmail",  # Detected app/service name
-            "context": "...",  # Context for later MCP calls
-            "workflows": [...]  # Exactly 8 best workflows
+            "app": application_name,
+            "context": context_string,
+            "workflows": [...]  # Exactly 8 best MCP tools
         }
     """
-    # Extract app/service name
-    app_name = _extract_app_name(process, title, url, workflows_data)
-    
-    # Build context string for later use in MCP calls
-    context_string = f"""Timestamp: {timestamp}
-Process: {process}
-Window Title: {title}
-URL: {url if url and url != 'N/A' else 'Not applicable'}
-Additional Context: {context if context else 'None'}"""
-    
-    # Convert MCP tools to workflow format
-    available_workflows = []
-    for tool in mcp_tools:
-        tool_name = tool.get('name', '')
-        tool_description = tool.get('description', '')
-        workflow_id = f"{app_name.lower()}_{tool_name}"
-        
-        available_workflows.append({
-            'id': workflow_id,
-            'name': tool_name.replace('_', ' ').title(),
-            'description': tool_description or f"Execute {tool_name} tool"
-        })
-    
-    if not available_workflows:
-        # No MCP tools available, return empty workflows
+    # Build context string for LLM
+    context_string = (
+        f"Application: {application_name}\n"
+        f"Channel: {channel_name}\n"
+        f"Additional Context: {context if context else 'None'}"
+    )
+
+    # Fetch available MCP tools
+    try:
+        mcp_tools = list_mcp_tools(application_name)
+    except MCPError as e:
+        print(f"Failed to fetch MCP tools: {e}")
         return {
-            'app': app_name,
+            'app': application_name,
             'context': context_string,
             'workflows': []
         }
-    
-    # Use LLM to select exactly 8 best workflows based on context
-    workflows = _get_best_workflows(
-        app_name=app_name,
-        context_string=context_string,
-        available_workflows=available_workflows,
-        screenshot_base64=screenshot_base64
-    )
-    
-    # Ensure we return exactly 8 (or fewer if not enough available)
-    workflows = workflows[:8]
-    
+
+    # Convert MCP tools to workflow format
+    available_workflows = [
+        {
+            'id': f"{application_name.lower()}_{tool.get('name', '').lower()}",
+            'name': tool.get('name', '').replace('_', ' ').title(),
+            'description': tool.get('description', f"Execute {tool.get('name', '')} tool")
+        }
+        for tool in mcp_tools
+    ]
+
+    if not available_workflows:
+        return {
+            'app': application_name,
+            'context': context_string,
+            'workflows': []
+        }
+
+    # Get top 8 workflows using LLM
+    try:
+        workflows = _get_best_workflows(
+            app_name=application_name,
+            context_string=context_string,
+            available_workflows=available_workflows,
+            screenshot_base64=screenshot_base64
+        )
+    except Exception as e:
+        print(f"LLM selection failed: {e}, returning first 8 workflows")
+        workflows = available_workflows[:8]
+
     return {
-        'app': app_name,
+        'app': application_name,
         'context': context_string,
-        'workflows': workflows
+        'workflows': workflows[:8]
     }
+
 
 
 def _get_best_workflows(
@@ -215,91 +212,5 @@ def _parse_workflows(llm_response: str) -> List[Dict[str, str]]:
             return parsed['workflows']
     except json.JSONDecodeError:
         pass
-    
-    return []
-
-
-def _extract_app_name(process: str, title: str, url: str, workflows_data: Optional[Dict[str, Any]] = None) -> str:
-    """
-    Extract app/service name from process, title, or URL.
-    Dynamically checks against available services from MCP_SERVERS and workflows_data.
-    """
-    process_lower = process.lower()
-    title_lower = title.lower()
-    url_lower = url.lower() if url and url != 'N/A' else ''
-    
-    # Get available services dynamically
-    available_services = set(MCP_SERVERS.keys())
-    if workflows_data:
-        available_services.update(workflows_data.keys())
-    
-    # Build service patterns: service name -> keywords/domains
-    service_patterns = {}
-    for service in available_services:
-        service_lower = service.lower()
-        patterns = {
-            'keywords': [service_lower],
-            'domains': [],
-            'process_names': [service_lower]
-        }
-        
-        # Add common domain patterns
-        if service_lower == 'gmail':
-            patterns['domains'] = ['gmail.com', 'mail.google.com']
-            patterns['keywords'].extend(['mail', 'email'])
-        elif service_lower == 'slack':
-            patterns['domains'] = ['slack.com']
-        elif service_lower == 'notion':
-            patterns['domains'] = ['notion.so']
-        elif service_lower == 'calendar':
-            patterns['domains'] = ['calendar.google.com', 'outlook.com/calendar']
-            patterns['keywords'].extend(['outlook'])
-        
-        service_patterns[service] = patterns
-    
-    # Check process name
-    for service, patterns in service_patterns.items():
-        for keyword in patterns['keywords']:
-            if keyword in process_lower:
-                # Special case: Chrome with service in title
-                if 'chrome' in process_lower and keyword in title_lower:
-                    return service.capitalize()
-                elif keyword in process_lower:
-                    return service.capitalize()
-    
-    # Check URL
-    if url_lower:
-        for service, patterns in service_patterns.items():
-            for domain in patterns['domains']:
-                if domain in url_lower:
-                    return service.capitalize()
-    
-    # Check title
-    for service, patterns in service_patterns.items():
-        for keyword in patterns['keywords']:
-            if keyword in title_lower:
-                return service.capitalize()
-    
-    # Fallback: try exact match against available services
-    for service in available_services:
-        service_lower = service.lower()
-        if service_lower == process_lower or service_lower in process_lower:
-            return service.capitalize()
-    
-    # Final fallback
-    return process if process else 'Unknown'
-
-
-def get_workflow_suggestions(service_name: str, workflows_data: Dict[str, Any], available_tools: Optional[List[Dict[str, str]]] = None) -> List[Dict[str, str]]:
-    """
-    Simple function for /list-workflows endpoint (legacy support).
-    Just returns available tools or workflows from workflows_data.
-    """
-    if available_tools:
-        return available_tools
-    
-    service_name_lower = service_name.lower()
-    if workflows_data and service_name_lower in workflows_data:
-        return workflows_data[service_name_lower].get('workflows', [])
     
     return []
