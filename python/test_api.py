@@ -35,6 +35,70 @@ def test_list_workflows(service="Gmail"):
     print()
 
 
+def test_analyze_context():
+    """Test the analyze-context endpoint."""
+    print("Testing /analyze-context endpoint...")
+    
+    # Test with Gmail context
+    payload = {
+        "timestamp": "2025-11-22T17:28:02",
+        "process": "Chrome",
+        "title": "Gmail - Inbox",
+        "url": "https://mail.google.com",
+        "screenshot_base64": "",  # Optional - leave empty for text-only test
+        "context": "User is viewing their inbox, has 5 unread emails"
+    }
+    
+    try:
+        response = requests.post(
+            f"{BASE_URL}/analyze-context",
+            json=payload,
+            headers={"Content-Type": "application/json"},
+            timeout=60  # LLM calls can take longer
+        )
+        print(f"Status: {response.status_code}")
+        if response.status_code == 200:
+            result = response.json()
+            print(f"Detected App: {result.get('app', 'Unknown')}")
+            print(f"Context: {result.get('context', 'N/A')[:100]}...")  # First 100 chars
+            print(f"Workflows Found: {len(result.get('workflows', []))}")
+            print(f"Full Response: {json.dumps(result, indent=2)}")
+        else:
+            print(f"Error: {response.text}")
+    except requests.exceptions.RequestException as e:
+        print(f"Request failed: {e}")
+    print()
+    
+    # Test with VS Code context
+    payload2 = {
+        "timestamp": "2025-11-22T17:30:00",
+        "process": "Code",
+        "title": "loupedeck_context.json - TutorialPlugin - Visual Studio Code",
+        "url": "N/A",
+        "screenshot_base64": "",
+        "context": "User is editing a Python file in VS Code"
+    }
+    
+    try:
+        response2 = requests.post(
+            f"{BASE_URL}/analyze-context",
+            json=payload2,
+            headers={"Content-Type": "application/json"},
+            timeout=60
+        )
+        print(f"Status: {response2.status_code}")
+        if response2.status_code == 200:
+            result = response2.json()
+            print(f"Detected App: {result.get('app', 'Unknown')}")
+            print(f"Workflows Found: {len(result.get('workflows', []))}")
+            print(f"Response: {json.dumps(result, indent=2)}")
+        else:
+            print(f"Error: {response2.text}")
+    except requests.exceptions.RequestException as e:
+        print(f"Request failed: {e}")
+    print()
+
+
 def test_trigger_workflow():
     """Test the trigger-workflow endpoint."""
     print("Testing /trigger-workflow endpoint...")
@@ -87,7 +151,8 @@ if __name__ == "__main__":
         test_health()
         test_list_workflows("Gmail")
         test_list_workflows("Slack")
-        test_trigger_workflow()
+        test_analyze_context()  # Test the new endpoint
+        # test_trigger_workflow()  # Commented out - requires MCP server
         
         print("=" * 60)
         print("All tests completed!")
