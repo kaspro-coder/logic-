@@ -13,7 +13,7 @@ from watchdog.events import FileSystemEventHandler
 from PIL import Image, ImageDraw, ImageFont
 
 # --- CONFIGURATION ---
-GEMINI_API_KEY = "AIzaSyBcTnPtenab0Fd6m3dnaaYtJFaQsh2keIk" # Votre clé API
+GEMINI_API_KEY = "AIzaSyBcTnPtenab0Fd6m3dnaaYtJFaQsh2keIk" # Remettez votre clé API !
 
 genai.configure(api_key=GEMINI_API_KEY)
 
@@ -82,14 +82,13 @@ SUMMARY_FILE = os.path.join(DESKTOP_DIR, "loupedeck_summary.json")
 ACTIONS_FILE = os.path.join(DESKTOP_DIR, "loupedeck_actions.json")
 
 # --- GUI : LOADING SCREEN ---
-def show_loading_screen(app_name, mode="Analyse"):
+def show_loading_screen(app_name, mode="Analyzing"):
     state = {"running": True}
 
     def run():
         root = tk.Tk()
-        root.overrideredirect(True) # Pas de bordure
+        root.overrideredirect(True) # No border
         
-        # Centrage
         w, h = 350, 120
         sw = root.winfo_screenwidth()
         sh = root.winfo_screenheight()
@@ -101,11 +100,10 @@ def show_loading_screen(app_name, mode="Analyse"):
         root.attributes("-topmost", True)
         root.attributes("-alpha", 0.90)
         
-        # Design
         frame = tk.Frame(root, bg="#1e1e1e", highlightbackground="#00ff9d", highlightthickness=2)
         frame.pack(fill=tk.BOTH, expand=True)
         
-        title_text = f"IA : {mode} de {app_name}..."
+        title_text = f"AI: {mode} {app_name}..."
         lbl = tk.Label(frame, text=title_text, fg="white", bg="#1e1e1e", font=("Segoe UI", 12, "bold"))
         lbl.pack(pady=(30, 15))
         
@@ -136,16 +134,16 @@ def show_loading_screen(app_name, mode="Analyse"):
     
     return stop_loading
 
-# --- GUI : RESULTAT ---
+# --- GUI: RESULT ---
 def show_summary_popup(text, source_app):
     def run_gui():
         root = tk.Tk()
-        root.title(f"Résumé IA - {source_app}")
+        root.title(f"AI Summary - {source_app}")
         root.geometry("600x500")
         root.configure(bg="#1e1e1e")
         root.attributes("-topmost", True)
         
-        lbl = tk.Label(root, text=f"Analyse : {source_app}", bg="#1e1e1e", fg="#00ff9d", font=("Arial", 14, "bold"))
+        lbl = tk.Label(root, text=f"Analysis: {source_app}", bg="#1e1e1e", fg="#00ff9d", font=("Arial", 14, "bold"))
         lbl.pack(pady=15)
         
         text_area = scrolledtext.ScrolledText(root, wrap=tk.WORD, width=60, height=20, bg="#252526", fg="#e0e0e0", bd=0, padx=15, pady=15, font=("Consolas", 11))
@@ -153,23 +151,33 @@ def show_summary_popup(text, source_app):
         text_area.insert(tk.INSERT, text)
         text_area.configure(state='disabled')
         
-        tk.Button(root, text="Fermer", command=root.destroy, bg="#007acc", fg="white", relief="flat", padx=20, pady=5).pack(pady=15)
+        tk.Button(root, text="Close", command=root.destroy, bg="#007acc", fg="white", relief="flat", padx=20, pady=5).pack(pady=15)
         root.mainloop()
     threading.Thread(target=run_gui, daemon=True).start()
 
-# --- ANALYSE ---
+# --- ANALYSIS ---
 def analyze_for_buttons(process_name, image_part):
     if not model: return
     
-    # 1. Démarrage du Loading Screen pour les BOUTONS
-    stop_loading = show_loading_screen(process_name, mode="Configuration")
-    print(f"[Boutons] Analyse de {process_name}...")
+    stop_loading = show_loading_screen(process_name, mode="Configuring")
+    print(f"[Buttons] Analyzing {process_name}...")
     
+    # --- PROMPT CORRIGÉ POUR SENDKEYS ---
     prompt = f"""
-    Contexte : App "{process_name}".
-    Donne 4 actions rapides.
-    IMPORTANT : Pour chaque action, choisis un EMOJI unique qui servira d'icône.
-    JSON: [ {{"label": "Titre", "keys": "Raccourci", "icon": "Emoji"}} ]
+    Context: App "{process_name}".
+    Provide 4 quick actions.
+    
+    IMPORTANT 1: Choose a unique EMOJI for each action.
+    
+    IMPORTANT 2: The 'keys' field MUST use Windows SendKeys syntax:
+    - Control = ^ (e.g., ^c for Ctrl+C)
+    - Shift = + (e.g., +n for Shift+N)
+    - Alt = %
+    - Special keys MUST be in braces: {{ENTER}}, {{TAB}}, {{ESC}}, {{F5}}, {{LEFT}}, {{RIGHT}}, {{UP}}, {{DOWN}}, {{BACKSPACE}}, {{PGUP}}, {{PGDN}}
+    - Example: To refresh, use "{{F5}}", NOT "F5".
+    - Example: To open new tab, use "^t", NOT "Ctrl+T".
+    
+    JSON Format: [ {{"label": "Title", "keys": "SendKeys_Format", "icon": "Emoji"}} ]
     """
     
     try:
@@ -183,45 +191,45 @@ def analyze_for_buttons(process_name, image_part):
                     for action in actions:
                         action['imageData'] = emoji_to_base64(action.get('icon', '🔹'))
                     
-                    with open(ACTIONS_FILE, 'w', encoding='utf-8') as f:
-                        json.dump(actions, f, ensure_ascii=False, indent=2)
-                    print("-> Boutons mis à jour.")
+                    output_data = {
+                        "targetProcess": process_name,
+                        "items": actions
+                    }
                     
-                    # Succès : on arrête le loading et on sort de la boucle
+                    with open(ACTIONS_FILE, 'w', encoding='utf-8') as f:
+                        json.dump(output_data, f, ensure_ascii=False, indent=2)
+                    
+                    print("-> Buttons updated (with correct keystrokes).")
+                    # Debug: afficher les touches générées
+                    for a in actions:
+                        print(f"   Action: {a['label']} -> Keys: {a['keys']}")
+
                     stop_loading()
                     return
             except Exception as e:
                 if "429" in str(e): time.sleep(5)
-                else: print(f"Erreur: {e}"); break
+                else: print(f"Error: {e}"); break
                 
     except Exception as e:
-        print(f"Erreur Générale Boutons: {e}")
+        print(f"General Button Error: {e}")
     finally:
-        # Sécurité : on s'assure que le loading s'arrête quoi qu'il arrive
         stop_loading()
 
 def analyze_for_summary(process_name, image_part):
     if not model: return
     
-    # 1. Démarrage du Loading Screen pour le RÉSUMÉ
-    stop_loading = show_loading_screen(process_name, mode="Lecture")
-    print(f"[Résumé] Lecture de {process_name}...")
+    stop_loading = show_loading_screen(process_name, mode="Reading")
+    print(f"[Summary] Reading {process_name}...")
     
     try:
-        # 2. Appel IA (Bloquant)
-        response = model.generate_content(["Fais un résumé structuré et clair.", image_part])
-        
-        # 3. Arrêt du Loading Screen
+        response = model.generate_content(["Make a structured and clear summary in English.", image_part])
         stop_loading()
-        
-        # 4. Affichage du résultat
         show_summary_popup(response.text, process_name)
-        
     except Exception as e: 
-        stop_loading() # Toujours arrêter le loading même en cas d'erreur
-        print(f"Erreur Résumé: {e}")
+        stop_loading() 
+        print(f"Summary Error: {e}")
 
-# --- SURVEILLANCE ---
+# --- MONITORING ---
 class ContextHandler(FileSystemEventHandler):
     def __init__(self):
         self.last_trigger_time = 0
@@ -259,7 +267,7 @@ def process_file(filepath, mode):
 
 if __name__ == "__main__":
     if not model: exit()
-    print(f"--- Cerveau IA v7 (Full Loading UI) ---")
+    print(f"--- AI Brain v10 (SendKeys Fix) ---")
     observer = Observer()
     observer.schedule(ContextHandler(), path=DESKTOP_DIR, recursive=False)
     observer.start()

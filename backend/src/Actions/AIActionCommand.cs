@@ -4,14 +4,23 @@ using System.IO;
 using System.Windows.Forms;
 using System.Text.Json;
 using System.Text;
+using System.Diagnostics; // Pour Process
+using System.Runtime.InteropServices; // Pour les API Windows
 using Loupedeck;
 
 namespace Loupedeck.TutorialPlugin
 {
     public abstract class AIActionBase : PluginDynamicCommand
     {
+        // --- IMPORT API WINDOWS POUR LE FOCUS ---
+        [DllImport("user32.dll")]
+        private static extern bool SetForegroundWindow(IntPtr hWnd);
+
         private static readonly object _lock = new object();
-        protected static List<AIActionItem> SharedActions = new List<AIActionItem>();
+        
+        // On change la structure stockée pour inclure le nom du process
+        protected static AIActionRoot SharedData = new AIActionRoot();
+        
         private static FileSystemWatcher _sharedWatcher;
         private static string _actionsFilePath;
 
@@ -55,9 +64,12 @@ namespace Loupedeck.TutorialPlugin
                 if (File.Exists(_actionsFilePath)) {
                     string jsonContent = File.ReadAllText(_actionsFilePath, Encoding.UTF8);
                     var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
-                    var newActions = JsonSerializer.Deserialize<List<AIActionItem>>(jsonContent, options);
-                    if (newActions != null) {
-                        lock (_lock) SharedActions = newActions;
+                    
+                    // On désérialise maintenant l'objet racine
+                    var root = JsonSerializer.Deserialize<AIActionRoot>(jsonContent, options);
+                    
+                    if (root != null && root.Items != null) {
+                        lock (_lock) SharedData = root;
                         OnListUpdated?.Invoke(null, EventArgs.Empty);
                     }
                 }
@@ -68,33 +80,28 @@ namespace Loupedeck.TutorialPlugin
         {
             AIActionItem action = null;
             lock (_lock) {
-                if (MyIndex < SharedActions.Count) action = SharedActions[MyIndex];
+                if (SharedData.Items != null && MyIndex < SharedData.Items.Count) 
+                    action = SharedData.Items[MyIndex];
             }
 
-            // On utilise un seul bloc 'using' pour garantir qu'on retourne toujours une image
             using (var bitmap = new BitmapBuilder(imageSize))
             {
                 bitmap.Clear(BitmapColor.Black);
 
                 if (action != null)
                 {
-                    // 1. L'IMAGE (Emoji)
                     if (!string.IsNullOrEmpty(action.ImageData))
                     {
                         try {
                             var base64Data = action.ImageData.Replace("data:image/jpeg;base64,", "");
                             byte[] bytes = Convert.FromBase64String(base64Data);
                             var img = BitmapImage.FromArray(bytes);
-                            // Image remontée (-12) pour laisser de la place au texte
-                            bitmap.DrawImage(img, 20, -5); 
+                            bitmap.DrawImage(img, 0, -12); 
                         } catch { }
                     }
 
-                    // 2. LE TEXTE (Label)
                     int fontSize = 15;
-                    int textHeight = 35;
-                    
-                    // Position en bas
+                    int textHeight = 30;
                     int yPos = bitmap.Height - textHeight; 
                     int width = bitmap.Width;
 
@@ -102,7 +109,6 @@ namespace Loupedeck.TutorialPlugin
                 }
                 else
                 {
-                    // Cas bouton vide : un simple point gris
                     bitmap.DrawText(".", new BitmapColor(50, 50, 50), 20);
                 }
 
@@ -110,7 +116,6 @@ namespace Loupedeck.TutorialPlugin
             }
         }
 
-        // --- CORRECTION ICI : On renvoie un ESPACE pour écraser le texte par défaut ---
         protected override string GetCommandDisplayName(string actionParameter, PluginImageSize imageSize)
         {
             return " "; 
@@ -119,16 +124,70 @@ namespace Loupedeck.TutorialPlugin
         protected override void RunCommand(string actionParameter)
         {
             string keys = null;
-            lock (_lock) { if (MyIndex < SharedActions.Count) keys = SharedActions[MyIndex].Keys; }
-            if (!string.IsNullOrEmpty(keys)) { try { SendKeys.SendWait(keys); } catch { } }
+            string targetProcess = "";
+
+            lock (_lock) { 
+                if (SharedData.Items != null && MyIndex < SharedData.Items.Count) {
+                    keys = SharedData.Items[MyIndex].Keys;
+                    targetProcess = SharedData.TargetProcess;
+                }
+            }
+
+            if (!string.IsNullOrEmpty(keys))
+            {
+                // 1. On essaie de remettre le focus sur l'application cible
+                if (!string.IsNullOrEmpty(targetProcess))
+                {
+                    FocusApplication(targetProcess);
+                }
+
+                // 2. On envoie les touches
+                try { SendKeys.SendWait(keys); } catch { }
+            }
+        }
+
+        // --- NOUVELLE FONCTION : FOCUS FENETRE ---
+        private void FocusApplication(string processName)
+        {
+            try
+            {
+                // On enlève le .exe si présent
+                processName = processName.Replace(".exe", "");
+                
+                Process[] processes = Process.GetProcessesByName(processName);
+                if (processes.Length > 0)
+                {
+                    // On prend le premier processus trouvé qui a une fenêtre
+                    foreach (var p in processes)
+                    {
+                        if (p.MainWindowHandle != IntPtr.Zero)
+                        {
+                            SetForegroundWindow(p.MainWindowHandle);
+                            
+                            // Petite pause pour laisser le temps à Windows de changer le focus
+                            System.Threading.Thread.Sleep(100); 
+                            return;
+                        }
+                    }
+                }
+            }
+            catch { }
         }
     }
 
-    // --- LES 4 BOUTONS ---
+    // --- CLASSES SUPPORT ---
+
     public class AIAction1 : AIActionBase { public AIAction1() : base("AI_BTN_01", "1. Action IA", 0) { } }
     public class AIAction2 : AIActionBase { public AIAction2() : base("AI_BTN_02", "2. Action IA", 1) { } }
     public class AIAction3 : AIActionBase { public AIAction3() : base("AI_BTN_03", "3. Action IA", 2) { } }
     public class AIAction4 : AIActionBase { public AIAction4() : base("AI_BTN_04", "4. Action IA", 3) { } }
+
+    // Nouvelle structure JSON
+    public class AIActionRoot
+    {
+        public string TargetProcess { get; set; } = "";
+        public List<AIActionItem> Items { get; set; } = new List<AIActionItem>();
+    }
 
     public class AIActionItem
     {
